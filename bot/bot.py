@@ -1,82 +1,55 @@
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import requests
+import httpx
 
+# Логирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-# Разные API ключи для разных моделей
-DEEPSEEK_API_KEY = "sk-4d0fc9b811ed4d7b85e747b596ca8b65"
-OPENAI_API_KEY = "sk-...your-openai-key..."
-GEMINI_API_KEY = "your-gemini-key"
-
-# Хранение текущей модели пользователя
-user_models = {}
+# Конфигурация
+TELEGRAM_TOKEN = "8320252272:AAGu8gHsoZHysN7jyCmMdEKjUtcwzXCgjTM"
+OPENROUTER_API_KEY = "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"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("""
-Выбери модель:
-/start_deepseek - DeepSeek
-/start_openai - OpenAI
-/start_gemini - Gemini
-/ask [вопрос] - задать вопрос
-""")
+    await update.message.reply_text("Привет! Я бот, который отвечает с помощью OpenRouter. Напиши мне что-нибудь!")
 
-async def set_deepseek_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_models[update.effective_chat.id] = "deepseek"
-    await update.message.reply_text("Теперь использую DeepSeek")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
 
-async def set_openai_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_models[update.effective_chat.id] = "openai"
-    await update.message.reply_text("Теперь использую OpenAI")
-
-async def set_gemini_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_models[update.effective_chat.id] = "gemini"
-    await update.message.reply_text("Теперь использую Gemini")
-
-async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text.replace('/ask ', '', 1)
-    chat_id = update.effective_chat.id
-    
-    model = user_models.get(chat_id, "deepseek")
-    
     try:
-        if model == "deepseek":
-            response = requests.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "deepseek-chat", "messages": [{"role": "user", "content": user_message}], "stream": False}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "openai/gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": user_message}]
+                }
             )
-        elif model == "openai":
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": user_message}], "stream": False}
-            )
-        elif model == "gemini":
-            # Для Gemini нужно использовать другую структуру
-            pass
-            
+
+        if response.status_code != 200:
+            await update.message.reply_text(f"Ошибка API OpenRouter: {response.status_code}")
+            return
+
         data = response.json()
         bot_reply = data['choices'][0]['message']['content']
         await update.message.reply_text(bot_reply)
 
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        await update.message.reply_text("Произошла ошибка")
+        logger.error(f"Ошибка при обращении к OpenRouter: {e}")
+        await update.message.reply_text("Извини, произошла ошибка.")
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("start_deepseek", set_deepseek_model))
-    app.add_handler(CommandHandler("start_openai", set_openai_model))
-    app.add_handler(CommandHandler("start_gemini", set_gemini_model))
-    app.add_handler(CommandHandler("ask", ask_question))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ask_question))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    logger.info("Бот запущен с OpenRouter...")
     app.run_polling()
 
 if __name__ == '__main__':
